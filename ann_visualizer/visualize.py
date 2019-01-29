@@ -38,10 +38,14 @@ def ann_viz(model, view=True, filename="network.gv", title="My Neural Network"):
     hidden_layers = [];
     output_layer = 0;
     for layer in model.layers:
+        print(layer.output_shape)
         if(layer == model.layers[0]):
             input_layer = int(str(layer.input_shape).split(",")[1][1:-1]);
             hidden_layers_nr += 1;
             if (type(layer) == keras.layers.core.Dense):
+                hidden_layers.append(int(str(layer.output_shape).split(",")[1][1:-1]));
+                layer_types.append("Dense");
+            elif (type(layer) == keras.engine.input_layer.InputLayer):
                 hidden_layers.append(int(str(layer.output_shape).split(",")[1][1:-1]));
                 layer_types.append("Dense");
             else:
@@ -78,7 +82,7 @@ def ann_viz(model, view=True, filename="network.gv", title="My Neural Network"):
                         layer_types.append("Activation");
         last_layer_nodes = input_layer;
         nodes_up = input_layer;
-        if(type(model.layers[0]) != keras.layers.core.Dense):
+        if(type(model.layers[0]) != keras.layers.core.Dense) and (type(model.layers[0]) != keras.engine.input_layer.InputLayer):
             last_layer_nodes = 1;
             nodes_up = 1;
             input_layer = 1;
@@ -89,6 +93,19 @@ def ann_viz(model, view=True, filename="network.gv", title="My Neural Network"):
         #Input Layer
         with g.subgraph(name='cluster_input') as c:
             if(type(model.layers[0]) == keras.layers.core.Dense):
+                the_label = title+'\n\n\n\nInput Layer';
+                if (int(str(model.layers[0].input_shape).split(",")[1][1:-1]) > 10):
+                    the_label += " (+"+str(int(str(model.layers[0].input_shape).split(",")[1][1:-1]) - 10)+")";
+                    input_layer = 10;
+                c.attr(color='white')
+                for i in range(0, input_layer):
+                    n += 1;
+                    c.node(str(n));
+                    c.attr(label=the_label)
+                    c.attr(rank='same');
+                    c.node_attr.update(color="#2ecc71", style="filled", fontcolor="#2ecc71", shape="circle");
+
+            elif(type(model.layers[0]) == keras.engine.input_layer.InputLayer):
                 the_label = title+'\n\n\n\nInput Layer';
                 if (int(str(model.layers[0].input_shape).split(",")[1][1:-1]) > 10):
                     the_label += " (+"+str(int(str(model.layers[0].input_shape).split(",")[1][1:-1]) - 10)+")";
@@ -120,8 +137,8 @@ def ann_viz(model, view=True, filename="network.gv", title="My Neural Network"):
                 n += 1;
                 c.node(str(n), label="Image\n"+pxls[1]+" x"+pxls[2]+" pixels\n"+clrmap, fontcolor="white");
             else:
-                raise ValueError("ANN Visualizer: Layer not supported for visualizing");
-        for i in range(0, hidden_layers_nr):
+                raise ValueError("ANN Visualizer: Layer not supported for visualizing: {}".format(layer));
+        for i in range(1, hidden_layers_nr):
             with g.subgraph(name="cluster_"+str(i+1)) as c:
                 if (layer_types[i] == "Dense"):
                     c.attr(color='white');
