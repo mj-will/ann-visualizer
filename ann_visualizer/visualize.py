@@ -15,7 +15,13 @@ The above copyright notice and this permission notice
 shall be included in all copies or substantial portions of the Software.
 """
 
-def ann_viz(model, view=True, filename="network.gv", title="My Neural Network"):
+from graphviz import Digraph;
+import keras;
+from keras.models import Sequential;
+from keras.layers import Dense, Conv2D, MaxPooling2D, Dropout, Flatten;
+import json;
+
+def ann_viz(model, multi_input=False, view=True, filename="network.gv", title="My Neural Network"):
     """Vizualizez a Sequential model.
 
     # Arguments
@@ -27,11 +33,17 @@ def ann_viz(model, view=True, filename="network.gv", title="My Neural Network"):
 
         title: A title for the graph
     """
-    from graphviz import Digraph;
-    import keras;
-    from keras.models import Sequential;
-    from keras.layers import Dense, Conv2D, MaxPooling2D, Dropout, Flatten;
-    import json;
+
+    if multi_input:
+        g = _build_graph_multi_input_model(model, filename, title)
+    else:
+        g = _build_graph_simple_model(model, filename, title)
+
+    if view == True:
+        g.view();
+
+def _build_graph_simple_model(model, filename, title):
+
     input_layer = 0;
     hidden_layers_nr = 0;
     layer_types = [];
@@ -217,5 +229,173 @@ def ann_viz(model, view=True, filename="network.gv", title="My Neural Network"):
 
     g.attr(arrowShape="none");
     g.edge_attr.update(arrowhead="none", color="#707070");
-    if view == True:
-        g.view();
+    return g
+
+def _build_graph_multi_input_model(model, filename, title):
+
+    extrinsic_input_layer = 0;
+    intrinsic_input_layer = 0;
+    hidden_layers_nr = 0;
+    layer_types = [];
+    hidden_layers = [];
+    input_layers = [];
+    output_layer = 0;
+
+    for layer in model.layers:
+        if(layer == model.layers[0]):
+            input_layer = int(str(layer.input_shape).split(",")[1][1:-1]);
+            hidden_layers_nr += 1;
+            if (type(layer) == keras.layers.core.Dense):
+                hidden_layers.append(int(str(layer.output_shape).split(",")[1][1:-1]));
+                layer_types.append("Dense");
+            elif (type(layer) == keras.engine.input_layer.InputLayer):
+                hidden_layers.append(int(str(layer.output_shape).split(",")[1][1:-1]));
+                layer_types.append("Dense");
+            else:
+                hidden_layers.append(1);
+                if (type(layer) == keras.layers.convolutional.Conv2D):
+                    layer_types.append("Conv2D");
+                elif (type(layer) == keras.layers.pooling.MaxPooling2D):
+                    layer_types.append("MaxPooling2D");
+                elif (type(layer) == keras.layers.core.Dropout):
+                    layer_types.append("Dropout");
+                elif (type(layer) == keras.layers.core.Flatten):
+                    layer_types.append("Flatten");
+                elif (type(layer) == keras.layers.core.Activation):
+                    layer_types.append("Activation");
+        else:
+            if(layer == model.layers[-1]):
+                output_layer = int(str(layer.output_shape).split(",")[1][1:-1]);
+            else:
+                hidden_layers_nr += 1;
+                if (type(layer) == keras.layers.core.Dense):
+                    hidden_layers.append(int(str(layer.output_shape).split(",")[1][1:-1]));
+                    layer_types.append("Dense");
+                else:
+                    hidden_layers.append(1);
+                    if (type(layer) == keras.layers.convolutional.Conv2D):
+                        layer_types.append("Conv2D");
+                    elif (type(layer) == keras.layers.pooling.MaxPooling2D):
+                        layer_types.append("MaxPooling2D");
+                    elif (type(layer) == keras.layers.core.Dropout):
+                        layer_types.append("Dropout");
+                    elif (type(layer) == keras.layers.core.Flatten):
+                        layer_types.append("Flatten");
+                    elif (type(layer) == keras.layers.core.Activation):
+                        layer_types.append("Activation");
+        last_layer_nodes = input_layer;
+        nodes_up = input_layer;
+        if(type(model.layers[0]) != keras.layers.core.Dense) and (type(model.layers[0]) != keras.engine.input_layer.InputLayer):
+            last_layer_nodes = 1;
+            nodes_up = 1;
+            input_layer = 1;
+
+    g = Digraph('g', filename=filename);
+    m = 0;
+    n = 0;
+    p = 0
+    q = 0
+    g.graph_attr.update(splines="false", nodesep='1', ranksep='2');
+    extrinsic = 3
+    intrinsic = 2
+    params = [extrinsic, intrinsic]
+    node_labels = ["ex", "in"]
+    hidden_layers_nr = 10
+    #Input Layer
+    #with g.subgraph(name= "cluster_parameters") as c:
+    #    the_label = "";
+    #    c.attr(style='filled')
+    #    c.attr(color='lightgrey')
+    #    for i in range(0, extrinsic):
+    #        p += 1
+    #        c.node("ex" + str(p));
+    #        c.attr(label=the_label)
+    #        c.attr(rank='same');
+    #        c.node_attr.update(color="#ffea00", style="filled", fontcolor="#ffea00", shape="circle");
+
+    #    for i in range(0, intrinsic):
+    #        q += 1
+    #        c.node("in" + str(q));
+    #        c.attr(label=the_label)
+    #        c.attr(rank='same');
+    #        c.node_attr.update(color="#ffea00", style="filled", fontcolor="#ffea00", shape="circle");
+    last_nodes_both = []
+    nodes_up_both = []
+    for NL, pc in zip(node_labels, params):
+        n = pc
+        print(n, NL)
+        the_Label = ""
+        last_layer_nodes = pc;
+        nodes_up = pc;
+        with g.subgraph(name=NL + "_input") as c:
+            c.attr(color='white')
+            for i in range(0, pc):
+                n += 1;
+                c.node(NL + str(n), color="#2ecc71", style="filled", fontcolor="#2ecc71", shape="circle");
+                c.attr(label=the_Label)
+                c.attr(rank='same');
+                #g.edge(NL + str(n - pc),  NL + str(n))
+
+        for i in range(1, hidden_layers_nr + 1):
+            with g.subgraph(name=NL + "_cluster_"+str(i+1)) as c:
+                c.attr(color='white');
+                c.attr(rank='same');
+                #If hidden_layers[i] > 10, dont include all
+                the_label = "";
+                hidden_layers = 5;
+                c.attr(labeljust="right", labelloc="b", label=the_label);
+                for j in range(0, hidden_layers):
+                    n += 1;
+                    c.node(NL + str(n), shape="circle", style="filled", color="#3498db", fontcolor="#3498db");
+                    for h in range(nodes_up - last_layer_nodes + 1 + pc , nodes_up + 1 + pc):
+                        g.edge(NL + str(h), NL + str(n));
+                last_layer_nodes = hidden_layers;
+                nodes_up += hidden_layers;
+        last_nodes_both.append(last_layer_nodes)
+        nodes_up_both.append(n)
+
+    with g.subgraph(name='cluster_concat_layer') as c:
+        n = 0
+        c.attr(color='white')
+        c.attr(rank='same');
+        c.attr(labeljust="1");
+        for NL, nu, lln, pc in zip(node_labels, nodes_up_both, last_nodes_both, params):
+            for i in range(nu - lln + 1, nu + 1):
+                n += 1;
+                c.node("mix" + str(n), shape="circle", style="filled", color="#ffa500", fontcolor="#ffa500");
+
+                g.edge(NL + str(i), "mix" + str(n));
+
+        last_layer_nodes = n
+        nodes_up = n
+        mixed_clusters = 3
+        mixed_neurons = 5
+
+    for i in range(1, mixed_clusters):
+        with g.subgraph(name='mixed_clusters_' + str(i)) as c:
+            c.attr(color='white')
+            c.attr(rank='same');
+            c.attr(labeljust="1");
+            for j in range(1, mixed_neurons + 1):
+                n += 1;
+                c.node("mix" + str(n), shape="circle", style="filled", color="#551A8B", fontcolor="#551A8B");
+                for h in range(nodes_up - last_layer_nodes + 1, nodes_up + 1):
+                    g.edge("mix" + str(h), "mix" + str(n));
+            last_layer_nodes = mixed_neurons
+            nodes_up += mixed_neurons
+
+    with g.subgraph(name="output") as c:
+        c.attr(color='white')
+        c.attr(rank='same');
+        c.attr(labeljust="1");
+        for i in range(1, output_layer+1):
+            n += 1;
+            c.node("output" + str(n), shape="circle", style="filled", color="#e74c3c", fontcolor="#e74c3c");
+            for h in range(nodes_up - last_layer_nodes + 1 , nodes_up + 1):
+                g.edge("mix" + str(h), "output" + str(n));
+        c.attr(label='Output Layer', labelloc="bottom")
+        c.node_attr.update(color="#2ecc71", style="filled", fontcolor="#2ecc71", shape="circle");
+
+    g.attr(arrowShape="none");
+    g.edge_attr.update(arrowhead="none", color="#707070");
+    return g
