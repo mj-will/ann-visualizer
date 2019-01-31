@@ -14,7 +14,9 @@ subject to the following conditions:
 The above copyright notice and this permission notice
 shall be included in all copies or substantial portions of the Software.
 """
-
+from collections import OrderedDict
+import itertools
+import re
 from graphviz import Digraph;
 import keras;
 from keras.models import Sequential;
@@ -49,6 +51,7 @@ def _build_graph_simple_model(model, filename, title):
     layer_types = [];
     hidden_layers = [];
     output_layer = 0;
+    input_count = 0
     for layer in model.layers:
         if(layer == model.layers[0]):
             input_layer = int(str(layer.input_shape).split(",")[1][1:-1]);
@@ -58,6 +61,7 @@ def _build_graph_simple_model(model, filename, title):
                 layer_types.append("Dense");
             elif (type(layer) == keras.engine.input_layer.InputLayer):
                 hidden_layers.append(int(str(layer.output_shape).split(",")[1][1:-1]));
+                input_count += 1
                 layer_types.append("Dense");
             else:
                 hidden_layers.append(1);
@@ -91,8 +95,14 @@ def _build_graph_simple_model(model, filename, title):
                         layer_types.append("Flatten");
                     elif (type(layer) == keras.layers.core.Activation):
                         layer_types.append("Activation");
+                    elif (type(layer) == keras.engine.input_layer.InputLayer):
+                        input_count += 1
         last_layer_nodes = input_layer;
         nodes_up = input_layer;
+
+        if input_count > 1:
+            raise ValueError("Model contains multiple input layers, enable multi_input")
+
         if(type(model.layers[0]) != keras.layers.core.Dense) and (type(model.layers[0]) != keras.engine.input_layer.InputLayer):
             last_layer_nodes = 1;
             nodes_up = 1;
@@ -231,170 +241,106 @@ def _build_graph_simple_model(model, filename, title):
     g.edge_attr.update(arrowhead="none", color="#707070");
     return g
 
-def _build_graph_multi_input_model(model, filename, title):
+def _build_graph_multi_input_model(model, filename, title, max_nodes=5, colours=None, node_size=None):
 
-    extrinsic_input_layer = 0;
-    intrinsic_input_layer = 0;
-    hidden_layers_nr = 0;
-    layer_types = [];
-    hidden_layers = [];
     input_layers = [];
-    output_layer = 0;
+    layers = OrderedDict()
+    if node_size is None:
+        node_size = {"width":str(2), "height":str(2)}
+    if colours is None:
+        colours = {"Dense": "#3498db",
+                   "Input": "#2ecc71",
+                   "Concatenation": "#ffa500",
+                   "Output": "#e74c3c",
+                   "Mixed_Dense": "#551a8b"}
 
     for layer in model.layers:
-        if(layer == model.layers[0]):
-            input_layer = int(str(layer.input_shape).split(",")[1][1:-1]);
-            hidden_layers_nr += 1;
-            if (type(layer) == keras.layers.core.Dense):
-                hidden_layers.append(int(str(layer.output_shape).split(",")[1][1:-1]));
-                layer_types.append("Dense");
-            elif (type(layer) == keras.engine.input_layer.InputLayer):
-                hidden_layers.append(int(str(layer.output_shape).split(",")[1][1:-1]));
-                layer_types.append("Dense");
-            else:
-                hidden_layers.append(1);
-                if (type(layer) == keras.layers.convolutional.Conv2D):
-                    layer_types.append("Conv2D");
-                elif (type(layer) == keras.layers.pooling.MaxPooling2D):
-                    layer_types.append("MaxPooling2D");
-                elif (type(layer) == keras.layers.core.Dropout):
-                    layer_types.append("Dropout");
-                elif (type(layer) == keras.layers.core.Flatten):
-                    layer_types.append("Flatten");
-                elif (type(layer) == keras.layers.core.Activation):
-                    layer_types.append("Activation");
+        cf = layer.get_config()
+        name = cf['name']
+        # get name of input layer
+        if "merge" in name:
+            inputs = [re.split('/|:', a.name)[0] for a in layer.input]
         else:
-            if(layer == model.layers[-1]):
-                output_layer = int(str(layer.output_shape).split(",")[1][1:-1]);
+            inputs = re.split('/|:', layer.input.name)[0]
+        if layer == model.layers[-1]:
+            nodes = cf["units"]
+            layer_type = "Output"
+        else:
+            if type(layer) == keras.engine.input_layer.InputLayer:
+                nodes = int(str(layer.output_shape).split(",")[1][1:-1])
+                layer_type = "Input"
+            elif type(layer) == keras.layers.Dense:
+                nodes = int(cf["units"])
+                layer_type = "Dense";
             else:
-                hidden_layers_nr += 1;
-                if (type(layer) == keras.layers.core.Dense):
-                    hidden_layers.append(int(str(layer.output_shape).split(",")[1][1:-1]));
-                    layer_types.append("Dense");
-                else:
-                    hidden_layers.append(1);
-                    if (type(layer) == keras.layers.convolutional.Conv2D):
-                        layer_types.append("Conv2D");
-                    elif (type(layer) == keras.layers.pooling.MaxPooling2D):
-                        layer_types.append("MaxPooling2D");
-                    elif (type(layer) == keras.layers.core.Dropout):
-                        layer_types.append("Dropout");
-                    elif (type(layer) == keras.layers.core.Flatten):
-                        layer_types.append("Flatten");
-                    elif (type(layer) == keras.layers.core.Activation):
-                        layer_types.append("Activation");
-        last_layer_nodes = input_layer;
-        nodes_up = input_layer;
-        if(type(model.layers[0]) != keras.layers.core.Dense) and (type(model.layers[0]) != keras.engine.input_layer.InputLayer):
-            last_layer_nodes = 1;
-            nodes_up = 1;
-            input_layer = 1;
+                nodes = 1
+                if (type(layer) == keras.layers.convolutional.Conv2D):
+                    layer_type = "Conv2D"
+                elif (type(layer) == keras.layers.pooling.MaxPooling2D):
+                    layer_type = "MaxPooling2D"
+                elif (type(layer) == keras.layers.core.Dropout):
+                    layer_type = "Dropout"
+                elif (type(layer) == keras.layers.core.Flatten):
+                    layer_type = "Flatten"
+                elif (type(layer) == keras.layers.core.Activation):
+                    layer_type = "Activation"
+                elif  (type(layer) == keras.layers.merge.Concatenate):
+                    layer_type = "Concatenation"
+        if (nodes > max_nodes):
+            nodes = max_nodes
+        d = {"name": name, "inputs": inputs, "type": layer_type, "nodes": nodes}
+        layers[name] = d
+        if layer_type == "Input":
+            input_layers.append(d)
+
 
     g = Digraph('g', filename=filename);
-    m = 0;
-    n = 0;
-    p = 0
-    q = 0
     g.graph_attr.update(splines="false", nodesep='1', ranksep='2');
-    extrinsic = 3
-    intrinsic = 2
-    params = [extrinsic, intrinsic]
-    node_labels = ["ex", "in"]
-    hidden_layers_nr = 10
-    #Input Layer
-    #with g.subgraph(name= "cluster_parameters") as c:
-    #    the_label = "";
-    #    c.attr(style='filled')
-    #    c.attr(color='lightgrey')
-    #    for i in range(0, extrinsic):
-    #        p += 1
-    #        c.node("ex" + str(p));
-    #        c.attr(label=the_label)
-    #        c.attr(rank='same');
-    #        c.node_attr.update(color="#ffea00", style="filled", fontcolor="#ffea00", shape="circle");
 
-    #    for i in range(0, intrinsic):
-    #        q += 1
-    #        c.node("in" + str(q));
-    #        c.attr(label=the_label)
-    #        c.attr(rank='same');
-    #        c.node_attr.update(color="#ffea00", style="filled", fontcolor="#ffea00", shape="circle");
-    last_nodes_both = []
-    nodes_up_both = []
-    for NL, pc in zip(node_labels, params):
-        n = pc
-        print(n, NL)
-        the_Label = ""
-        last_layer_nodes = pc;
-        nodes_up = pc;
-        with g.subgraph(name=NL + "_input") as c:
-            c.attr(color='white')
-            for i in range(0, pc):
-                n += 1;
-                c.node(NL + str(n), color="#2ecc71", style="filled", fontcolor="#2ecc71", shape="circle");
-                c.attr(label=the_Label)
-                c.attr(rank='same');
-                #g.edge(NL + str(n - pc),  NL + str(n))
-
-        for i in range(1, hidden_layers_nr + 1):
-            with g.subgraph(name=NL + "_cluster_"+str(i+1)) as c:
-                c.attr(color='white');
-                c.attr(rank='same');
-                #If hidden_layers[i] > 10, dont include all
-                the_label = "";
-                hidden_layers = 5;
-                c.attr(labeljust="right", labelloc="b", label=the_label);
-                for j in range(0, hidden_layers):
-                    n += 1;
-                    c.node(NL + str(n), shape="circle", style="filled", color="#3498db", fontcolor="#3498db");
-                    for h in range(nodes_up - last_layer_nodes + 1 + pc , nodes_up + 1 + pc):
-                        g.edge(NL + str(h), NL + str(n));
-                last_layer_nodes = hidden_layers;
-                nodes_up += hidden_layers;
-        last_nodes_both.append(last_layer_nodes)
-        nodes_up_both.append(n)
-
-    with g.subgraph(name='cluster_concat_layer') as c:
-        n = 0
-        c.attr(color='white')
-        c.attr(rank='same');
-        c.attr(labeljust="1");
-        for NL, nu, lln, pc in zip(node_labels, nodes_up_both, last_nodes_both, params):
-            for i in range(nu - lln + 1, nu + 1):
-                n += 1;
-                c.node("mix" + str(n), shape="circle", style="filled", color="#ffa500", fontcolor="#ffa500");
-
-                g.edge(NL + str(i), "mix" + str(n));
-
-        last_layer_nodes = n
-        nodes_up = n
-        mixed_clusters = 3
-        mixed_neurons = 5
-
-    for i in range(1, mixed_clusters):
-        with g.subgraph(name='mixed_clusters_' + str(i)) as c:
+    for layer in input_layers:
+        name = "cluster_" + layer["name"].split("_")[0] + "_input"
+        with g.subgraph(name=name) as c:
             c.attr(color='white')
             c.attr(rank='same');
-            c.attr(labeljust="1");
-            for j in range(1, mixed_neurons + 1):
-                n += 1;
-                c.node("mix" + str(n), shape="circle", style="filled", color="#551A8B", fontcolor="#551A8B");
-                for h in range(nodes_up - last_layer_nodes + 1, nodes_up + 1):
-                    g.edge("mix" + str(h), "mix" + str(n));
-            last_layer_nodes = mixed_neurons
-            nodes_up += mixed_neurons
+            c.attr(labeljust="right", labelloc="b", label="");
+            for i in range(0, layer["nodes"]):
+                c.node(layer["name"] + str(i), color="#2ecc71", style="filled", fontcolor="#2ecc71", shape="circle", label="", **node_size)
+                c.attr(rank='same');
 
-    with g.subgraph(name="output") as c:
-        c.attr(color='white')
-        c.attr(rank='same');
-        c.attr(labeljust="1");
-        for i in range(1, output_layer+1):
-            n += 1;
-            c.node("output" + str(n), shape="circle", style="filled", color="#e74c3c", fontcolor="#e74c3c");
-            for h in range(nodes_up - last_layer_nodes + 1 , nodes_up + 1):
-                g.edge("mix" + str(h), "output" + str(n));
-        c.attr(label='Output Layer', labelloc="bottom")
-        c.node_attr.update(color="#2ecc71", style="filled", fontcolor="#2ecc71", shape="circle");
+    for layer in layers.values():
+        # input layers already added
+        if layer in input_layers:
+            continue
+        # name for layer in the Diagraph
+        name = "cluster_" + layer["name"]
+        # get the colour for the nodes in layer
+        if "mix" in name:
+            colour = colours["Mixed_Dense"]
+        else:
+            colour = colours[layer["type"]]
+        # merge layers have multiple inputs
+        if "merge" in layer["name"]:
+            input_name = [layers[l]["name"] for l in layer["inputs"]]
+            layer["nodes"] = [layers[l]["nodes"] for l in layer["inputs"]]
+            # make list of nodes that input into merge layer
+            input_nodes =  [[inp + str(n) for n in range(N)] for inp, N in zip(input_name, layer["nodes"])]
+            input_nodes = list(itertools.chain.from_iterable(input_nodes))
+            layer["nodes"] = sum(layer["nodes"])
+        else:
+            input_name = [layers[layer["inputs"]]["name"]]
+            nodes = layer["nodes"]
+        # make subgraph
+        with g.subgraph(name=name) as c:
+            c.attr(color='white')
+            c.attr(rank='same');
+            for i in range(0, layer["nodes"]):
+                c.node(layer["name"] + str(i), color=colour, style="filled", fontcolor=colour, shape="circle", label="", **node_size);
+                if "merge" in layer["name"]:
+                    g.edge(input_nodes[i], layer["name"] + str(i))
+                else:
+                    for inp in input_name:
+                        for j in range(0, layers[inp]["nodes"]):
+                            g.edge(inp + str(j), layer["name"] + str(i))
 
     g.attr(arrowShape="none");
     g.edge_attr.update(arrowhead="none", color="#707070");
